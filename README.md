@@ -67,8 +67,13 @@ docker compose exec redis-cli sh /scripts/shard.sh SET user:2 bob
 
 # 观察 key 被分散到不同 master
 docker compose exec redis-cli sh /scripts/status.sh
-docker compose exec redis-cli redis-cli -h shard1-master -a redispass keys '*'
-docker compose exec redis-cli redis-cli -h shard2-master -a redispass keys '*'
+
+# 注意：第一个 redis-cli 是 Compose 服务名（不是命令），
+# 第二个才是容器内执行的 redis-cli 命令。
+docker compose exec -T -e REDISCLI_AUTH=redispass redis-cli \
+  redis-cli -h shard1-master --no-auth-warning --scan --pattern '*' | sort -u
+docker compose exec -T -e REDISCLI_AUTH=redispass redis-cli \
+  redis-cli -h shard2-master --no-auth-warning --scan --pattern '*' | sort -u
 ```
 
 路由过程会打印到 stderr，例如：
