@@ -1,7 +1,8 @@
 # Redis 多分片 Sentinel 集群运维文档
 
-本文档比 `README.md` 更完整，覆盖架构、配置参数、`shard.sh` 客户端分片脚本、
-`redis-cli` 常用命令、日常运维、故障排查、备份恢复和验证脚本。
+本文档比 `README.md` 更完整，覆盖架构、配置参数、`shard.sh` 运维分片脚本、
+`client_sharding.py` 客户端分片示例、`redis-cli` 常用命令、日常运维、故障排查、
+备份恢复和验证脚本。
 
 项目目录：`/home/opc/redis-sentinel-sharding`
 
@@ -56,7 +57,8 @@ Sentinel 和 Redis Cluster 解决的是两个不同问题：
 因此本方案采用 **多分片 Sentinel + 客户端分片**：
 
 - 每个分片内部由 Sentinel 负责高可用。
-- 分片之间由客户端脚本（本项目的 `scripts/shard.sh`）或业务客户端负责路由。
+- 分片之间由客户端负责路由：运维用 `scripts/shard.sh`，业务接入可参考
+  `scripts/client_sharding.py`。
 - 不提供 Redis Cluster 的 `CLUSTER` 命令、槽位、自动 rehash 能力。
 
 如果最终需要服务端自动分片和在线扩容，应改用 Redis Cluster（至少 3 主）。
@@ -475,7 +477,76 @@ docker compose exec redis-cli sh /scripts/shard.sh SET demo:1 x
   受影响区间；
 - 或直接改用 Redis Cluster（服务端自动分片和 rehash）。
 
-### 4.6 生产替代方案
+### 4.6 Python 客户端分片示例
+
+`scripts/shard.sh` 每次执行都会启动 `redis-cli` 并查询 Sentinel，适合运维和
+验证，不适合线上高并发。可运行的客户端示例在：
+
+```text
+scripts/client_sharding.py
+scripts/requirements-client.txt
+```
+
+它演示了生产客户端需要的核心逻辑：
+
+- 按 key 选择分片；
+- 每个分片独立通过自己的 Sentinel 发现 master；
+- 缓存连接池，连接失败或收到 `READONLY` 时刷新 master 并重试一次；
+- `MGET` / `DEL` 自动按分片拆分后合并；
+- `status` / `route` 便于排查当前分片和 master。
+
+安装依赖：
+
+```bash
+python3 -m pip install -r scripts/requirements-client.txt
+```
+
+常用命令：
+
+```bash
+python3 scripts/client_sharding.py status
+python3 scripts/client_sharding.py set user:1 alice
+python3 scripts/client_sharding.py get user:1
+python3 scripts/client_sharding.py mget user:1 user:2
+python3 scripts/client_sharding.py del user:1
+python3 scripts/client_sharding.py route user:1 user:2
+```
+
+默认使用 `cksum` 取模，与 `scripts/shard.sh` 完全兼容。可切换为一致性哈希：
+
+```bash
+SHARD_ROUTING=ring python3 scripts/client_sharding.py route user:1
+```
+
+注意：`ring` 模式与 `shard.sh` 的 `cksum % N` **不兼容**，已有数据需要迁移后
+才能切换。两种模式在修改分片数时都不会自动迁移数据。
+
+客户端默认连接 Docker 网络内的服务名（`shardN-sentinel1:26379` 等）。
+在宿主机直接运行时，即使把 Sentinel 地址改成 `127.0.0.1:27001`，
+Sentinel 返回的 master 地址仍是容器主机名（如 `shard1-master`），宿主机无法解析。
+推荐在 Docker 网络内运行：
+
+```bash
+docker run --rm --network redis-sentinel-sharding_redisnet \
+  -v "$PWD/scripts:/scripts:ro" -e REDIS_PASSWORD=redispass \
+  python:3.12-slim sh -c \
+  "pip install -q -r /scripts/requirements-client.txt && \
+   python /scripts/client_sharding.py status"
+```
+
+客户端配置通过环境变量覆盖：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `REDIS_PASSWORD` | `redispass` | Redis 密码 |
+| `SENTINEL_PASSWORD` | 空 | Sentinel 密码（本项目未启用） |
+| `SHARD1_SENTINELS` | `shard1-sentinel1:26379,...` | shard1 Sentinel 列表，逗号分隔 |
+| `SHARD2_SENTINELS` | `shard2-sentinel1:26379,...` | shard2 Sentinel 列表，逗号分隔 |
+| `SHARD_ROUTING` | `cksum` | `cksum`（兼容 shard.sh）或 `ring` |
+| `SENTINEL_TIMEOUT` | `0.5` | Sentinel 查询超时（秒） |
+| `REDIS_TIMEOUT` | `2.0` | Redis 连接/读写超时（秒） |
+
+### 4.7 生产替代方案
 
 `shard.sh` 适合运维和验证，不建议承载线上高并发流量。生产建议：
 

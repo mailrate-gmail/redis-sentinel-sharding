@@ -14,6 +14,9 @@
 Sentinel 发现当前 master 并执行命令。Sentinel 本身不提供分片，这是 Sentinel 架构的
 标准做法。
 
+可运行的 Python 客户端示例见 `scripts/client_sharding.py`（默认与 `shard.sh` 使用
+相同的 `cksum % N` 路由，支持 Sentinel 故障转移后的 master 刷新）。
+
 ## 启动
 
 ```bash
@@ -74,7 +77,8 @@ docker compose exec redis-cli redis-cli -h shard2-master -a redispass keys '*'
 [shard.sh] key='user:1' -> shard1 (shard1-master:6379)
 ```
 
-限制：`MGET/MSET/DEL key1 key2` 等多 key 命令不会跨分片聚合，需要业务侧拆成单 key 操作。
+限制：`shard.sh` 不会对 `MGET/MSET/DEL key1 key2` 等多 key 命令做跨分片聚合，
+需要业务侧拆分；`scripts/client_sharding.py` 已演示 `MGET` / `DEL` 的按分片拆分。
 
 ## 故障转移验证
 

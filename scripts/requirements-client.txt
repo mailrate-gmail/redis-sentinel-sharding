@@ -1,0 +1,4 @@
+# scripts/client_sharding.py 的依赖
+# cksum 模式只需要 redis；ring（一致性哈希）模式额外需要 uhashring。
+redis>=5.0
+uhashring>=2.3
