@@ -65,7 +65,7 @@
 ├── test/                    # 自动化验证脚本
 ├── README.md
 ├── OPERATIONS.md
-└── LAB.md                   # 本文档
+└── Handson_lab.md          # 本文档
 ```
 
 ### 3.2 拓扑图
