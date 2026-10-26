@@ -139,6 +139,7 @@ SHARDS=2
 
 ## 更多文档
 
+- 学生入门实验（场景、分步操作、故障转移、检查点）：[`LAB.md`](LAB.md)
 - 详细运维文档（架构、全部配置参数、`shard.sh` 原理、`redis-cli` 命令、备份恢复、故障排查）：[`OPERATIONS.md`](OPERATIONS.md)
 - 分片 / 故障转移 / 重启保持性验证脚本：[`test/README.md`](test/README.md)
 
