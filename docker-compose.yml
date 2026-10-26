@@ -1,0 +1,278 @@
+name: redis-sentinel-sharding
+
+x-redis-base: &redis-base
+  image: redis:7.4-alpine
+  restart: unless-stopped
+  networks:
+    - redisnet
+  entrypoint: ["/scripts/redis-entrypoint.sh"]
+  environment:
+    REDIS_PASSWORD: ${REDIS_PASSWORD:-redispass}
+    SENTINEL_PORT: "26379"
+  command: >
+    --port 6379
+    --bind 0.0.0.0
+    --protected-mode no
+    --requirepass ${REDIS_PASSWORD:-redispass}
+    --masterauth ${REDIS_PASSWORD:-redispass}
+    --appendonly yes
+    --appendfsync everysec
+  healthcheck:
+    test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+    interval: 5s
+    timeout: 3s
+    retries: 30
+    start_period: 10s
+
+x-sentinel: &sentinel
+  image: redis:7.4-alpine
+  restart: unless-stopped
+  networks:
+    - redisnet
+  command: ["/scripts/sentinel-entrypoint.sh"]
+  environment:
+    REDIS_PASSWORD: ${REDIS_PASSWORD:-redispass}
+    SENTINEL_PORT: "26379"
+  volumes:
+    - ./scripts:/scripts:ro
+  healthcheck:
+    test: ["CMD-SHELL", "redis-cli -p 26379 ping | grep -q PONG"]
+    interval: 5s
+    timeout: 3s
+    retries: 20
+    start_period: 5s
+
+services:
+  # ========== Shard 1: 1 master + 2 replicas + 3 sentinels ==========
+  shard1-master:
+    <<: *redis-base
+    container_name: shard1-master
+    hostname: shard1-master
+    ports:
+      - "7001:6379"
+    volumes:
+      - ./scripts:/scripts:ro
+      - shard1-master-data:/data
+    depends_on:
+      shard1-sentinel1:
+        condition: service_started
+      shard1-sentinel2:
+        condition: service_started
+      shard1-sentinel3:
+        condition: service_started
+
+  shard1-replica1:
+    <<: *redis-base
+    container_name: shard1-replica1
+    hostname: shard1-replica1
+    ports:
+      - "7002:6379"
+    volumes:
+      - ./scripts:/scripts:ro
+      - shard1-replica1-data:/data
+    depends_on:
+      shard1-sentinel1:
+        condition: service_started
+      shard1-sentinel2:
+        condition: service_started
+      shard1-sentinel3:
+        condition: service_started
+
+  shard1-replica2:
+    <<: *redis-base
+    container_name: shard1-replica2
+    hostname: shard1-replica2
+    ports:
+      - "7003:6379"
+    volumes:
+      - ./scripts:/scripts:ro
+      - shard1-replica2-data:/data
+    depends_on:
+      shard1-sentinel1:
+        condition: service_started
+      shard1-sentinel2:
+        condition: service_started
+      shard1-sentinel3:
+        condition: service_started
+
+  shard1-sentinel1:
+    <<: *sentinel
+    container_name: shard1-sentinel1
+    hostname: shard1-sentinel1
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redispass}
+      SENTINEL_PORT: "26379"
+      SHARD_NAME: shard1
+      MASTER_HOST: shard1-master
+      MASTER_PORT: "6379"
+    ports:
+      - "27001:26379"
+    volumes:
+      - ./scripts:/scripts:ro
+      - shard1-sentinel1-data:/data
+
+  shard1-sentinel2:
+    <<: *sentinel
+    container_name: shard1-sentinel2
+    hostname: shard1-sentinel2
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redispass}
+      SENTINEL_PORT: "26379"
+      SHARD_NAME: shard1
+      MASTER_HOST: shard1-master
+      MASTER_PORT: "6379"
+    ports:
+      - "27002:26379"
+    volumes:
+      - ./scripts:/scripts:ro
+      - shard1-sentinel2-data:/data
+
+  shard1-sentinel3:
+    <<: *sentinel
+    container_name: shard1-sentinel3
+    hostname: shard1-sentinel3
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redispass}
+      SENTINEL_PORT: "26379"
+      SHARD_NAME: shard1
+      MASTER_HOST: shard1-master
+      MASTER_PORT: "6379"
+    ports:
+      - "27003:26379"
+    volumes:
+      - ./scripts:/scripts:ro
+      - shard1-sentinel3-data:/data
+
+  # ========== Shard 2: 1 master + 2 replicas + 3 sentinels ==========
+  shard2-master:
+    <<: *redis-base
+    container_name: shard2-master
+    hostname: shard2-master
+    ports:
+      - "7004:6379"
+    volumes:
+      - ./scripts:/scripts:ro
+      - shard2-master-data:/data
+    depends_on:
+      shard2-sentinel1:
+        condition: service_started
+      shard2-sentinel2:
+        condition: service_started
+      shard2-sentinel3:
+        condition: service_started
+
+  shard2-replica1:
+    <<: *redis-base
+    container_name: shard2-replica1
+    hostname: shard2-replica1
+    ports:
+      - "7005:6379"
+    volumes:
+      - ./scripts:/scripts:ro
+      - shard2-replica1-data:/data
+    depends_on:
+      shard2-sentinel1:
+        condition: service_started
+      shard2-sentinel2:
+        condition: service_started
+      shard2-sentinel3:
+        condition: service_started
+
+  shard2-replica2:
+    <<: *redis-base
+    container_name: shard2-replica2
+    hostname: shard2-replica2
+    ports:
+      - "7006:6379"
+    volumes:
+      - ./scripts:/scripts:ro
+      - shard2-replica2-data:/data
+    depends_on:
+      shard2-sentinel1:
+        condition: service_started
+      shard2-sentinel2:
+        condition: service_started
+      shard2-sentinel3:
+        condition: service_started
+
+  shard2-sentinel1:
+    <<: *sentinel
+    container_name: shard2-sentinel1
+    hostname: shard2-sentinel1
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redispass}
+      SENTINEL_PORT: "26379"
+      SHARD_NAME: shard2
+      MASTER_HOST: shard2-master
+      MASTER_PORT: "6379"
+    ports:
+      - "27004:26379"
+    volumes:
+      - ./scripts:/scripts:ro
+      - shard2-sentinel1-data:/data
+
+  shard2-sentinel2:
+    <<: *sentinel
+    container_name: shard2-sentinel2
+    hostname: shard2-sentinel2
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redispass}
+      SENTINEL_PORT: "26379"
+      SHARD_NAME: shard2
+      MASTER_HOST: shard2-master
+      MASTER_PORT: "6379"
+    ports:
+      - "27005:26379"
+    volumes:
+      - ./scripts:/scripts:ro
+      - shard2-sentinel2-data:/data
+
+  shard2-sentinel3:
+    <<: *sentinel
+    container_name: shard2-sentinel3
+    hostname: shard2-sentinel3
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redispass}
+      SENTINEL_PORT: "26379"
+      SHARD_NAME: shard2
+      MASTER_HOST: shard2-master
+      MASTER_PORT: "6379"
+    ports:
+      - "27006:26379"
+    volumes:
+      - ./scripts:/scripts:ro
+      - shard2-sentinel3-data:/data
+
+  # ========== redis-cli toolbox (runs client-side sharding scripts) ==========
+  redis-cli:
+    image: redis:7.4-alpine
+    container_name: redis-cli
+    hostname: redis-cli
+    restart: unless-stopped
+    command: ["sleep", "infinity"]
+    networks:
+      - redisnet
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redispass}
+      SHARDS: ${SHARDS:-2}
+      SENTINEL_PORT: "26379"
+    volumes:
+      - ./scripts:/scripts:ro
+
+networks:
+  redisnet:
+    driver: bridge
+
+volumes:
+  shard1-master-data:
+  shard1-replica1-data:
+  shard1-replica2-data:
+  shard1-sentinel1-data:
+  shard1-sentinel2-data:
+  shard1-sentinel3-data:
+  shard2-master-data:
+  shard2-replica1-data:
+  shard2-replica2-data:
+  shard2-sentinel1-data:
+  shard2-sentinel2-data:
+  shard2-sentinel3-data:
