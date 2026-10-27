@@ -155,20 +155,39 @@ docker compose ps
 如果你的环境不是初始状态（例如上一次实验留下的数据，或 master 已经不是
 `shard1-master` / `shard2-master`），先按本文 **11.3 完全重置** 再开始。
 
-### 5.3 定义两个快捷函数
+### 5.3 加载两个快捷函数
 
-为了避免每条命令都写密码，先在当前终端定义：
+为了避免每条命令都写密码，本实验环境已经把两个快捷函数写入 `~/.profile`。
+新开终端后先加载：
 
 ```bash
-# 数据节点：自动带上 REDISCLI_AUTH，避免密码出现在命令行
+source ~/.profile
+```
+
+函数内容如下，阅读即可，不需要重复粘贴：
+
+```bash
+# Redis Sentinel sharding lab helpers.
+# These functions let the handson lab commands work from any directory.
+export REDIS_LAB_DIR="/home/opc/redis-sentinel-sharding"
+
+redis_lab_password() {
+  awk -F= '$1=="REDIS_PASSWORD"{print $2}' "$REDIS_LAB_DIR/.env"
+}
+
 rc() {
-  docker compose exec -T -e REDISCLI_AUTH=redispass redis-cli \
+  local password="${REDIS_LAB_PASSWORD:-$(redis_lab_password)}"
+  docker compose --project-directory "$REDIS_LAB_DIR" \
+    -f "$REDIS_LAB_DIR/docker-compose.yml" \
+    exec -T -e REDISCLI_AUTH="$password" redis-cli \
     redis-cli --no-auth-warning "$@"
 }
 
-# Sentinel：本项目的 Sentinel 没有启用密码
 sc() {
-  docker compose exec -T redis-cli redis-cli -p 26379 "$@"
+  docker compose --project-directory "$REDIS_LAB_DIR" \
+    -f "$REDIS_LAB_DIR/docker-compose.yml" \
+    exec -T redis-cli \
+    redis-cli -p 26379 "$@"
 }
 ```
 
@@ -176,11 +195,13 @@ sc() {
 
 - `rc` 用于访问 Redis 数据节点，例如 `rc -h shard1-master INFO replication`；
 - `sc` 用于访问 Sentinel，例如 `sc -h shard1-sentinel1 sentinel ...`；
-- 如果新开终端，需要重新定义这两个函数；
-- 如果 `.env` 中的密码不是 `redispass`，请同步修改函数中的密码。
+- 函数使用 `REDIS_LAB_DIR` 指向项目目录，所以可以从任意目录执行；
+- `rc` 会自动读取 `.env` 中的 `REDIS_PASSWORD`；
+- 如果要临时覆盖密码，可以执行 `export REDIS_LAB_PASSWORD=新密码`；
+- 如果新开终端后提示 `rc: command not found`，先执行 `source ~/.profile`。
 
 > 后面的命令会大量使用 `rc` 和 `sc`。第一次看到时如果不放心，可以把
-> `rc` 展开成 `docker compose exec -T -e REDISCLI_AUTH=redispass redis-cli redis-cli --no-auth-warning ...`。
+> `rc` 展开成完整的 `docker compose --project-directory ... exec ... redis-cli ...` 命令。
 
 ---
 
