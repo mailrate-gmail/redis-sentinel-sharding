@@ -338,7 +338,31 @@ shard1 keys = 2
 shard2 keys = 1
 ```
 
-这里 `DBSIZE` 只能说明“每个分片有多少 key”，不能说明具体是哪些 key。
+这里 `status.sh` 内部使用的是 Redis 的 `DBSIZE` 命令。它适合快速观察
+“每个分片当前有多少 key”，但不能告诉你具体有哪些 key。
+
+`DBSIZE` 和 `SCAN` 的区别如下：
+
+| 命令 | 能看到什么 | 看不到什么 | 适合场景 |
+|------|------------|------------|----------|
+| `DBSIZE` | 当前 Redis DB 的 key 总数 | 具体 key 名、某个前缀的 key 数 | 快速看每个分片大概有多少 key |
+| `SCAN` | 按游标渐进式遍历 key，可配合 `MATCH` 过滤前缀 | 不是强一致快照，可能返回重复 key | 查看或统计某类 key，例如 `student:*` |
+
+例如：
+
+```bash
+# 只看 shard1 总共有多少 key
+rc -h shard1-master DBSIZE
+
+# 查看 shard1 中 student:* 这一类 key
+rc -h shard1-master --scan --pattern 'student:*' | sort -u
+```
+
+所以：
+
+- 想看“两个分片数量是否大致均衡”，用 `DBSIZE` 或 `status.sh`；
+- 想看“具体哪些 key 在哪个分片”，用 `SCAN` 或下面的 `EXISTS` 验证；
+- 不要用 `KEYS *`，因为它会一次性扫描全库并阻塞 Redis 主线程。
 
 ### 步骤 3：确认同一个 key 只在一个分片
 
@@ -406,6 +430,42 @@ printf '%s' student:1001 | cksum
 ```
 
 所以 `student:1001` 总是去 shard2。只要 `SHARDS` 不变，同一个 key 的路由就不变。
+
+### 步骤 6：为什么修改 SHARDS 会“看起来丢数据”
+
+这一节只做理解，**不要实际修改 `.env` 的 `SHARDS`**。
+
+假设现在 `SHARDS=2`，`student:1002` 的 hash 是 `1492544570`：
+
+```text
+1492544570 % 2 + 1 = 1  ->  shard1
+```
+
+所以刚才写入的 `student:1002` 实际保存在 shard1。
+
+如果你把分片数改成 `SHARDS=3`，同一个 key 的计算会变成：
+
+```text
+1492544570 % 3 + 1 = 2  ->  shard2
+```
+
+这时客户端会去 shard2 读取 `student:1002`，但数据还在旧的 shard1，结果就是：
+
+```text
+GET student:1002  ->  (nil)
+```
+
+这并不是 Redis 删除了数据，而是**路由算法变了，客户端去错了分片**。
+
+正确扩容流程应该是：
+
+1. 新增 shard3；
+2. 根据新旧路由计算哪些 key 需要移动；
+3. 把这些 key 从旧分片迁移到新分片；
+4. 校验迁移完成；
+5. 最后再让所有客户端切换到新的 `SHARDS=3` 配置。
+
+因此，客户端分片架构中，修改分片数不是简单改一个变量，而是一次数据迁移。
 
 ### 检查点
 
